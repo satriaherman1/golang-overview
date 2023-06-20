@@ -1,116 +1,144 @@
 package main
 
 import (
-	"fmt"
-	"sort"
+	"log"
+	"net/http"
+
+	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/handler"
+	"github.com/rs/cors"
 )
 
-type Mahasiswa struct {
-	No        int
-	Nama      string
-	Nim       int
-	Tgl_Lahir string
-	Semester  int
-	Ip        int
+type CalculationResult struct {
+	TotalStock   int     `json:"totalStock"`
+	TotalPrice   float64 `json:"totalPrice"`
+	CurrentPrice float64 `json:"currentPrice"`
 }
 
-func menambahkanNamaBaruDidepan(nama_mhs []string) {
-
-	result := append([]string{"Reyvaldo"}, nama_mhs...)
-
-	fmt.Println("Nama baru di depan : ", result)
-
-}
-
-func menghapusNamaDiAkhir(nama_mhs []string) {
-	var result []string
-	if len(nama_mhs) > 0 {
-		result = nama_mhs[:len(nama_mhs)-1]
-	}
-
-	fmt.Println(result)
-}
-
-func menghapusNamaDiAwal(nama_mhs []string) {
-	var result []string
-	if len(nama_mhs) > 0 {
-		result = nama_mhs[1:]
-	}
-
-	fmt.Println(result)
-}
-func menghapusSemuaData(nama_mhs []string) {
-
-	if len(nama_mhs) > 0 {
-		nama_mhs = nama_mhs[:0]
-	}
-
-	fmt.Println(nama_mhs)
-}
-
-func menghapusNamaDitengah(nama_mhs []string) {
-	var result []string
-	if len(nama_mhs)%2 == 1 {
-		length1 := len(nama_mhs) / 2
-
-		result = append(nama_mhs[:length1], nama_mhs[length1+1:]...)
-	} else {
-		length1 := len(nama_mhs) / 2
-
-		result = append(nama_mhs[:length1-1], nama_mhs[length1+1:]...)
-	}
-
-	fmt.Println(result)
-
-}
-
-func tampilkanDataMahasiswa(nama_mhs []string) {
-
-	var mahasiswa = []Mahasiswa{}
-
-	for index, mhs := range nama_mhs {
-		currentMhs := []Mahasiswa{{No: index + 1, Nama: mhs}}
-		mahasiswa = append(currentMhs, mahasiswa...)
-	}
-
-	// Menggunakan fungsi sort.Slice untuk mengurutkan data
-	sort.Slice(mahasiswa, func(i, j int) bool {
-		return mahasiswa[i].No < mahasiswa[j].No
-	})
-
-	fmt.Println("No 	     Nama")
-
-	for _, mhs := range mahasiswa {
-		fmt.Println(mhs.No, "	    ", mhs.Nama)
-	}
-
-}
-
-func UrutkanDataMahasiswa(nama_mhs []string) {
-	sort.Slice(nama_mhs, func(i, j int) bool {
-		return nama_mhs[i] < nama_mhs[j]
-	})
-
-	fmt.Print(nama_mhs)
-}
-
-func tambahNamaBaru(nama_mhs []string, nama string) {
-	result := append([]string{nama}, nama_mhs...)
-
-	fmt.Println("before : ", nama_mhs)
-	fmt.Println("after : ", result)
-
-}
+var testType = graphql.NewObject(
+	graphql.ObjectConfig{
+		Name: "Test",
+		Fields: graphql.Fields{
+			"id": &graphql.Field{
+				Type: graphql.String,
+			},
+			"no": &graphql.Field{
+				Type: graphql.Int,
+			},
+		},
+	},
+)
 
 func main() {
-	var nama_mhs = []string{"Irfan", "Satriyo", "Agra", "Aisyah", "Fatma", "aku", "hi", "hello"}
+	// Definisikan skema GraphQL
+	rootQuery := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Query",
+		Fields: graphql.Fields{
+			// Definisikan field query yang diperlukan
+			"test": &graphql.Field{
+				Type:        testType,
+				Description: "A dummy query",
+				Resolve:     resolveTest,
+			},
+		},
+	})
 
-	fmt.Println(nama_mhs[0])
-	// menghapusNamaDiAkhir(nama_mhs)
-	// menghapusNamaDiAwal(nama_mhs)
-	menghapusNamaDitengah(nama_mhs)
-	// menghapusSemuaData(nama_mhs)
-	// tampilkanDataMahasiswa(nama_mhs)
-	// UrutkanDataMahasiswa(nama_mhs)
-	// tambahNamaBaru(nama_mhs, "Satria")
+	rootMutation := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Mutation",
+		Fields: graphql.Fields{
+			"calculatePrice": &graphql.Field{
+				Type:        CalculationResultType,
+				Description: "Calculate chicken stock",
+				Args: graphql.FieldConfigArgument{
+					"price": &graphql.ArgumentConfig{
+						Type: graphql.NewNonNull(graphql.NewList(graphql.Float)),
+					},
+				},
+				Resolve: calculatePriceResolver,
+			},
+		},
+	})
+
+	schema, err := graphql.NewSchema(graphql.SchemaConfig{
+		Query:    rootQuery,
+		Mutation: rootMutation,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Buat handler GraphQL
+	h := handler.New(&handler.Config{
+		Schema:   &schema,
+		Pretty:   true,
+		GraphiQL: true,
+	})
+
+	// Mengonfigurasi CORS
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:5173"}, // CORS Origin
+		AllowedMethods:   []string{"POST", "GET", "OPTIONS"},
+		AllowedHeaders:   []string{"Origin", "Content-Type"},
+		AllowCredentials: true,
+	})
+
+	// Menggunakan CORS untuk handler GraphQL
+	handlerWithCors := c.Handler(h)
+
+	http.Handle("/graphql", handlerWithCors)
+
+	// Jalankan server di port 8080
+	log.Println("Running at  http://localhost:8080/graphql")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+var CalculationResultType = graphql.NewObject(graphql.ObjectConfig{
+	Name: "CalculationResult",
+	Fields: graphql.Fields{
+		"totalStock": &graphql.Field{
+			Type: graphql.Int,
+		},
+		"totalPrice": &graphql.Field{
+			Type: graphql.Float,
+		},
+		"currentPrice": &graphql.Field{
+			Type: graphql.Float,
+		},
+	},
+})
+
+func calculatePriceResolver(p graphql.ResolveParams) (interface{}, error) {
+	prices, _ := p.Args["price"].([]interface{})
+
+	totalStock := len(prices)
+	totalPrice := 0.0
+
+	for _, price := range prices {
+		if p, ok := price.(float64); ok {
+			totalPrice += p
+		}
+	}
+
+	currentPrice := totalPrice / float64(totalStock)
+
+	result := CalculationResult{
+		TotalStock:   totalStock,
+		TotalPrice:   totalPrice,
+		CurrentPrice: currentPrice,
+	}
+
+	return result, nil
+}
+
+func resolveTest(params graphql.ResolveParams) (interface{}, error) {
+	// Logika untuk mengambil data "id" dan "no"
+	// Misalnya, mengambil data dari database atau sumber data lainnya
+	id := "12345"
+	no := 10
+
+	// Mengembalikan objek yang berisi data "id" dan "no"
+	return map[string]interface{}{
+		"id": id,
+		"no": no,
+	}, nil
 }
