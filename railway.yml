@@ -1,0 +1,9 @@
+version: 2
+services:
+  main:
+    image: golang:latest
+    build:
+      dockerfile: Dockerfile
+    env:
+      - PORT=8080
+    command: go run main.go
